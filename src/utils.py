@@ -1,11 +1,10 @@
 import re
 import time
+import hashlib
 from src import (
-    info,
     cloudflare,
-    silent_error,
-    MAX_LIST_SIZE,
-    RATE_LIMIT_INTERVAL
+    info, silent_error,
+    MAX_LIST_SIZE, RATE_LIMIT_INTERVAL
 )
 
 class RateLimiter:
@@ -17,7 +16,7 @@ class RateLimiter:
         now = time.time()
         elapsed = now - self.timestamp
         sleep_time = max(0, self.interval - elapsed)
-        if (sleep_time > 0):
+        if sleep_time > 0:
             time.sleep(sleep_time)
         self.timestamp = time.time()
 
@@ -63,6 +62,17 @@ def safe_sort_key(list_item):
     match = re.search(r'\d+', list_item["name"])
     return int(match.group()) if match else float('inf')
 
+def hash_list(list_items):
+    hash_object = hashlib.sha256()
+    for item in sorted(list_items):
+        hash_object.update(item.encode('utf-8'))
+    return hash_object.hexdigest()
+
+def compare_lists_hash(new_list_items, list_items_values):
+    new_list_hash = hash_list(new_list_items)
+    old_list_hash = hash_list(list_items_values)
+    return new_list_hash == old_list_hash
+
 def update_lists(current_lists, chunked_lists, adlist_name):
     used_list_ids = []
     excess_list_ids = []
@@ -79,15 +89,19 @@ def update_lists(current_lists, chunked_lists, adlist_name):
     for list_item in current_lists.get("result", []):
         if f"{adlist_name}" in list_item["name"]:
             list_index = int(re.search(r'\d+', list_item["name"]).group())
-            if list_index in existing_indices:
-                if chunked_lists:
-                    info(f"Updating list {list_item['name']}")
+            if list_index in existing_indices and list_index - 1 < len(chunked_lists):
+                list_items = cloudflare.get_list_items(list_item["id"])
+                list_items_values = [
+                    item["value"] for item in list_items.get("result", []) if item["value"] is not None
+                ]
+                new_list_items = chunked_lists[list_index - 1]
 
-                    list_items = cloudflare.get_list_items(list_item["id"])
-                    list_items_values = [
-                        item["value"] for item in list_items.get("result", []) if item["value"] is not None
-                    ]
-                    list_items_array = [{"value": domain} for domain in chunked_lists.pop(0)]
+                if compare_lists_hash(new_list_items, list_items_values):
+                    info(f"No changes detected for list {list_item['name']}, skipping update")
+                    used_list_ids.append(list_item["id"])
+                else:
+                    info(f"Updating list {list_item['name']}")
+                    list_items_array = [{"value": domain} for domain in new_list_items]
 
                     payload = {
                         "append": list_items_array,
@@ -97,30 +111,30 @@ def update_lists(current_lists, chunked_lists, adlist_name):
                     cloudflare.patch_list(list_item["id"], payload)
                     used_list_ids.append(list_item["id"])
                     rate_limiter.wait_for_next_request()
-                    continue 
+                continue
 
             info(f"Marking list {list_item['name']} for deletion")
             excess_list_ids.append(list_item["id"])
-                
 
     return used_list_ids, excess_list_ids, missing_indices
 
 def create_lists(chunked_lists, missing_indices, adlist_name):
     used_list_ids = []
 
-    for chunk_list, index in zip(chunked_lists, missing_indices):
-        formatted_counter = f"{index:03d}"
-        info(f"Creating list {adlist_name} - {formatted_counter}")
+    for index in missing_indices:
+        if index - 1 < len(chunked_lists):
+            formatted_counter = f"{index:03d}"
+            info(f"Creating list {adlist_name} - {formatted_counter}")
 
-        payload = create_list_payload(
-            f"{adlist_name} - {formatted_counter}", chunk_list
-        )
+            payload = create_list_payload(
+                f"{adlist_name} - {formatted_counter}", chunked_lists[index - 1]
+            )
 
-        created_list = cloudflare.create_list(payload)
-        if created_list:
-            used_list_ids.append(created_list.get("result", {}).get("id"))
+            created_list = cloudflare.create_list(payload)
+            if created_list:
+                used_list_ids.append(created_list.get("result", {}).get("id"))
 
-        rate_limiter.wait_for_next_request()
+            rate_limiter.wait_for_next_request()
 
     return used_list_ids
 

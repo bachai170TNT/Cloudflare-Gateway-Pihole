@@ -1,27 +1,20 @@
-import random
-from tenacity import (
-    retry,
-    stop_never,
-    wait_random_exponential,
-    retry_if_exception_type
-)
 from requests.exceptions import RequestException, HTTPError
 from src import (
-    info,
-    session,
-    BASE_URL,
-    MAX_LIST_SIZE
+    info, session, BASE_URL, MAX_LIST_SIZE,
+    retry, stop_never, wait_random_exponential, retry_if_exception_type
 )
 
 retry_config = {
     'stop': stop_never,
-    'wait': wait_random_exponential(multiplier=1, max=10),
+    'wait': lambda attempt_number: wait_random_exponential(
+        attempt_number, multiplier=1, max_wait=10
+    ),
     'retry': retry_if_exception_type((HTTPError, RequestException)),
     'after': lambda retry_state: info(
-        f"Retrying ({retry_state.attempt_number}): {retry_state.outcome.exception()}"
+        f"Retrying ({retry_state['attempt_number']}): {retry_state['outcome']}"
     ),
     'before_sleep': lambda retry_state: info(
-        f"Sleeping before next retry ({retry_state.attempt_number})"
+        f"Sleeping before next retry ({retry_state['attempt_number']})"
     )
 }
 
