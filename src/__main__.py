@@ -4,7 +4,8 @@ from src.cloudflare import (
     get_lists, get_rules, create_list, update_list, create_rule, 
     update_rule, delete_list, delete_rule, get_list_items
 )
-from src import utils, info, silent_error,PREFIX
+from src import utils, info, error, silent_error, PREFIX
+
 
 class CloudflareManager:
     def __init__(self, prefix_name):
@@ -13,6 +14,9 @@ class CloudflareManager:
 
     def update_resources(self):
         domains_to_block = DomainConverter().process_urls()
+        if len(domains_to_block) > 300000:
+            error("The domains list exceeds Cloudflare Gateway's free limit of 300,000 domains.")
+        
         current_lists = get_lists(self.prefix_name)
         current_rules = get_rules(self.rule_name)
 
@@ -27,12 +31,12 @@ class CloudflareManager:
             if existing_list:
                 current_items = get_list_items(existing_list["id"])
                 current_values = {item["value"] for item in current_items}
+                remove_items = list(current_values - set(chunk))
+                append_items = list(set(chunk) - current_values)
 
-                if utils.hash_list(current_values) == utils.hash_list(chunk):
+                if not remove_items and not append_items:
                     silent_error(f"Skipping list update: {list_name}")
                 else:
-                    remove_items = list(current_values - set(chunk))
-                    append_items = list(set(chunk) - current_values)
                     update_list(existing_list["id"], remove_items, append_items)
                     info(f"Updated list: {list_name}")
                 list_ids.append(existing_list["id"])
@@ -41,17 +45,22 @@ class CloudflareManager:
                 info(f"Created list: {list_name}")
                 list_ids.append(list_id)
 
-        rule_exists = next((rule for rule in current_rules if rule["name"] == self.rule_name), None)
+        # Extract existing list IDs from current_rules for comparison
+        existing_rule = next((rule for rule in current_rules if rule["name"] == self.rule_name), None)
+        existing_list_ids = utils.extract_list_ids(existing_rule)
 
-        if rule_exists:
-            rule_id = rule_exists["id"]
-            info(f"Rule '{self.rule_name}' already exists. Updating...")
-            update_rule(self.rule_name, rule_id, list_ids)
+        if set(list_ids) == existing_list_ids:
+            silent_error(f"Skipping rule update as list IDs are unchanged: {self.rule_name}")
         else:
-            info(f"Rule '{self.rule_name}' does not exist. Creating...")
-            create_rule(self.rule_name, list_ids)
+            if existing_rule:
+                rule_id = existing_rule["id"]
+                info(f"Rule '{self.rule_name}' already exists. Updating...")
+                update_rule(self.rule_name, rule_id, list_ids)
+            else:
+                info(f"Rule '{self.rule_name}' does not exist. Creating...")
+                create_rule(self.rule_name, list_ids)
 
-        info(f"Updated rule: {self.rule_name}")
+            info(f"Updated rule: {self.rule_name}")
 
         # Delete excess lists
         excess_lists = [lst for lst in current_lists if lst["id"] not in list_ids]
@@ -63,7 +72,6 @@ class CloudflareManager:
         current_lists = get_lists(self.prefix_name)
         current_rules = get_rules(self.rule_name)
         current_lists.sort(key=utils.safe_sort_key)
-        
 
         info(f"Deleting rule '{self.rule_name}' and associated lists.")
 
