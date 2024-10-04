@@ -1,5 +1,6 @@
 import os
 import http.client
+from src.requests import retry
 from urllib.parse import urlparse, urljoin
 from configparser import ConfigParser
 from src import info, convert, silent_error
@@ -73,6 +74,7 @@ class DomainConverter:
         urls += self.read_urls_from_env(env_var)
         return urls
 
+    @retry
     def download_file(self, url: str) -> str:
         """
         Downloads the content of the given URL.
@@ -93,6 +95,11 @@ class DomainConverter:
         conn.request("GET", parsed_url.path, headers=headers)
         response = conn.getresponse()
     
+        # Check if the URL returns 404 and handle it without retrying
+        if response.status == 404:
+            silent_error(f"URL {url} returned 404. Skipping...")
+            return "" 
+        
         # Handle HTTP redirects
         while response.status in (301, 302, 303, 307, 308):
             location = response.getheader('Location')
