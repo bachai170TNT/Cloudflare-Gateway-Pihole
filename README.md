@@ -1,5 +1,3 @@
-![CF_logo_stacked_whitetype](https://github.com/luxysiv/Cloudflare-Gateway-Pihole/assets/46205571/b8b7b12b-2fd8-4978-8e3c-2472a4167acb)
-
 **[English](README.md)** | **[Việt Nam](docs/vi.md)**
 
 # Schedule
