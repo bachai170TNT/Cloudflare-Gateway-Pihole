@@ -8,6 +8,25 @@
 
 ---
 
+# Cài thời gian script tự động chạy
+
+[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/luxysiv/cloudflare-gateway-pihole-trigger)
+
+| Variable | Mô tả | Ví dụ |
+| :--- | :--- | :--- |
+| `GITHUB_TOKEN` | GitHub Personal Access Token (cần quyền Workflow, không hết hạn) | `ghp_xxxxxxxxxxxx` |
+| `GITHUB_USER` | Tên tài khoản GitHub của bạn | `luxysiv` |
+| `GITHUB_REPO` | Tên repository của bạn | `Cloudflare-Gateway-DNS-Filter` |
+| `WORKFLOW_ID` | Tên file workflow | `main.yml` |
+
+* Nên chọn **private repository** khi deploy.
+
+* Sau khi deploy xong, bạn có thể xoá repository đã clone.
+
+* Nếu nhận được email thông báo Github Action bị dừng, đừng lo — dùng Cloudflare Workers bên trên để script chạy mãi mãi.
+
+---
+
 ## Cơ chế hoạt động
 
 Script quản lý hai tập rule DNS trên Cloudflare Gateway trong một lần chạy duy nhất:
@@ -17,9 +36,9 @@ Script quản lý hai tập rule DNS trên Cloudflare Gateway trong một lần 
 | `[AdBlock-DNS-Filters] Block Ads` | block | 1000 | `adlist.ini` + `dynamic_blacklist.txt` |
 | `[AdAllow-DNS-Filters] Allow` | allow | 999 *(ưu tiên cao hơn)* | `whitelist.ini` + `dynamic_whitelist.txt` |
 
-Vì rule Allow có **số độ ưu tiên thấp hơn** (999 < 1000), Cloudflare đánh giá nó trước — tên miền được cho phép luôn được phân giải kể cả khi nó nằm trong danh sách chặn. Script không cần trừ whitelist khỏi blocklist nữa.
+Vì rule Allow có **số độ ưu tiên thấp hơn** (999 < 1000), Cloudflare đánh giá nó trước — tên miền được cho phép luôn được phân giải kể cả khi nằm trong danh sách chặn. Script không cần trừ whitelist khỏi blocklist nữa.
 
-Script cũng kiểm tra **giới hạn 300 lists** của gói miễn phí Cloudflare Gateway (tính tổng cả block lẫn allow). Nếu nguồn dữ liệu của bạn cần nhiều hơn 300 lists, script dừng lại trước khi gọi bất kỳ API nào.
+Script cũng kiểm tra **giới hạn 300 lists** của gói miễn phí Cloudflare Gateway (tính tổng cả block lẫn allow). Nếu vượt quá, script dừng lại trước khi gọi bất kỳ API nào.
 
 ---
 
@@ -29,13 +48,12 @@ Script cũng kiểm tra **giới hạn 300 lists** của gói miễn phí Cloudf
 
 ### 2. Lấy thông tin xác thực Cloudflare
 
-- **Account ID** — lấy từ URL sau `https://dash.cloudflare.com/`:
-  `https://dash.cloudflare.com/?to=/:account/workers`
+- **Account ID** — lấy từ URL: `https://dash.cloudflare.com/?to=/:account/workers`
 
-- **API Token** — tạo tại `https://dash.cloudflare.com/profile/api-tokens` với 3 quyền sau:
-  1. `Account › Zero Trust : Edit`
-  2. `Account › Account Firewall Access Rules : Edit`
-  3. `Account › Access: Apps and Policies : Edit`
+- **API Token** — tạo tại `https://dash.cloudflare.com/profile/api-tokens` với 3 quyền:
+  1. `Account.Zero Trust : Edit`
+  2. `Account.Account Firewall Access Rules : Edit`
+  3. `Account.Access: Apps and Policies : Edit`
 
 Tạo `CF_API_TOKEN` như sau:
 
@@ -50,7 +68,7 @@ Vào `https://github.com/<username>/Cloudflare-Gateway-DNS-Filter/settings/secre
 | `CF_API_TOKEN` | API Token vừa tạo |
 | `CF_IDENTIFIER` | Account ID của bạn |
 
-Secret Github Action như sau:
+`Secret Github Action` như sau:
 
 ![1000015672](https://github.com/luxysiv/Cloudflare-Gateway-Pihole/assets/46205571/6bd7f41d-0ca5-4944-95d3-d41dfd913c60)
 
@@ -81,135 +99,109 @@ Vào `https://github.com/<username>/Cloudflare-Gateway-DNS-Filter/settings/varia
 | `DYNAMIC_BLACKLIST` | Tên miền chặn thêm, mỗi dòng một tên |
 | `DYNAMIC_WHITELIST` | Tên miền cho phép thêm, mỗi dòng một tên |
 
-Dùng Variables giúp danh sách tuỳ chỉnh của bạn không bị mất khi pull cập nhật repo.
-
-Bạn cũng có thể chỉnh trực tiếp các file local:
-- [`lists/dynamic_blacklist.txt`](../lists/dynamic_blacklist.txt)
-- [`lists/dynamic_whitelist.txt`](../lists/dynamic_whitelist.txt)
+* Bạn nên thêm danh sách tùy chỉnh vào Action variables để không bị mất khi pull cập nhật repo.
 
 ---
 
-## Định dạng danh sách được hỗ trợ
+## Dành cho các bạn Việt Nam
 
-```
-# URL thuần
-https://adguardteam.github.io/AdGuardSDNSFilter/Filters/filter.txt
-```
-```ini
-# Định dạng INI
-[Ad-Urls]
-Adguard = https://adguardteam.github.io/AdGuardSDNSFilter/Filters/filter.txt
-```
-
-Hỗ trợ các định dạng: hosts file, cú pháp AdBlock/uBlock, danh sách domain thuần.
-
-> **Lưu ý dành cho người Việt Nam:** Dùng **bộ lọc DNS**, không phải bộ lọc cho browser extension. Bộ lọc browser chứa các quy tắc CSS/cosmetic sẽ gây lỗi khi dùng làm DNS blocklist.
+Các bạn cần phân biệt **bộ lọc DNS** và **bộ lọc browser**. Nhiều bạn đem bộ lọc browser lên chạy dẫn đến lỗi lướt web — bộ lọc browser chứa các quy tắc CSS/cosmetic không dùng được cho DNS.
 
 ---
 
-## Chạy trên máy cá nhân (Termux hoặc terminal bất kỳ)
+## Hướng dẫn sử dụng trên Termux
 
-### Cách 1 — Clone từ GitHub
+#### Cách 1:
+
+1. Mở Termux và chạy lần lượt các lệnh sau:
 
 ```sh
-# Cài đặt công cụ cần thiết
 yes | pkg upgrade
-yes | pkg install python-pip git
-
-# Clone repo của bạn
+yes | pkg install python-pip
+yes | pkg install git
 git clone https://github.com/<username>/Cloudflare-Gateway-DNS-Filter.git
-cd Cloudflare-Gateway-DNS-Filter
+```
 
-# Chỉnh thông tin xác thực
+2. Di chuyển vào thư mục vừa clone:
+
+```sh
+cd Cloudflare-Gateway-DNS-Filter
+```
+
+3. Chỉnh file `.env` (bắt buộc):
+
+```sh
 nano .env
 ```
 
-Chạy đồng bộ:
+Sau khi chỉnh xong, nhấn `CTRL + X`, rồi `Y`, rồi `ENTER` để lưu.
+
+4. Chạy lệnh để tải lên (cập nhật) danh sách DNS:
+
 ```sh
 python -m src run
 ```
 
-Xoá toàn bộ lists và rules đã tạo:
+5. Chạy lệnh để xoá danh sách DNS:
+
 ```sh
 python -m src leave
 ```
 
-### Cách 2 — Tải ZIP
+#### Cách 2:
 
-1. Tải file ZIP từ trang GitHub → **Code → Download ZIP**.
-2. Giải nén và chỉnh `.env`, `lists/adlist.ini`, `lists/whitelist.ini`.
-3. Mở Termux:
+1. Tải file ZIP của repository từ nút **Code → Download ZIP** trên GitHub.
+
+2. Giải nén file vừa tải.
+
+3. Chỉnh các giá trị trong `.env`, `lists/adlist.ini`, `lists/whitelist.ini`...
+
+4. Mở Termux và chạy:
 
 ```sh
 yes | pkg upgrade
 yes | pkg install python-pip
 termux-setup-storage
+```
+
+5. Cho phép Termux truy cập bộ nhớ.
+
+6. Di chuyển vào thư mục chứa source code đã giải nén:
+
+```sh
 cd storage/downloads/Cloudflare-Gateway-DNS-Filter-main
+```
+
+7. Chạy lệnh để tải lên (cập nhật) danh sách DNS:
+
+```sh
 python -m src run
 ```
 
----
+8. Chạy lệnh để xoá danh sách DNS:
 
-## Lịch chạy tự động
-
-Workflow tự động chạy vào **thứ Sáu hàng tuần lúc 0:00 UTC** và mỗi lần push. Bạn cũng có thể kích hoạt thủ công từ tab **Actions**.
-
-GitHub tự động vô hiệu hoá Actions sau 60 ngày không có push. Để tránh điều này, dùng Cloudflare Workers để tự động kích hoạt workflow:
-
-```javascript
-addEventListener('scheduled', event => {
-  event.waitUntil(handleScheduledEvent());
-});
-
-async function handleScheduledEvent() {
-  const GITHUB_TOKEN = 'YOUR_GITHUB_TOKEN';   // cần quyền workflow, không hết hạn
-  const GITHUB_USER  = 'YOUR_USERNAME';
-  const GITHUB_REPO  = 'YOUR_REPO_NAME';
-  const WORKFLOW_ID  = 'main.yml';
-
-  const url = `https://api.github.com/repos/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/${WORKFLOW_ID}/dispatches`;
-
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${GITHUB_TOKEN}`,
-      'Content-Type': 'application/json',
-      'User-Agent': 'Cloudflare-Worker-Trigger',
-    },
-    body: JSON.stringify({ ref: 'main' }),
-  });
-
-  if (!res.ok) throw new Error(`Dispatch thất bại: ${res.status}`);
-  console.log('Đã kích hoạt GitHub Action thành công');
-}
+```sh
+python -m src leave
 ```
 
-Nhớ cài **Cron Trigger** trong cài đặt Cloudflare Worker (ví dụ: `0 0 * * 5`).
+Nếu gặp lỗi trong quá trình cài đặt, tham khảo [termux-change-repo](https://wiki.termux.com/wiki/Package_Management) để đổi nguồn Termux.
 
 ---
 
-## Xoá toàn bộ tài nguyên đã tạo
+## Chú ý
 
-Đổi lệnh trong bước workflow thành `leave` rồi chạy một lần:
+* **Giới hạn** của Cloudflare Gateway Zero Trust free là **300 lists** (block + allow cộng lại), mỗi list 1.000 tên miền — tối đa **300.000 domains**. Script tự dừng nếu vượt giới hạn.
+
+* Các bạn đã tải danh sách bằng script khác thì nên xoá đi bằng tính năng xoá của script đó hoặc xoá tay.
+
+* Để xoá toàn bộ lists và rules do script này tạo ra, vào **[main.yml](../.github/workflows/main.yml)** và đổi lệnh:
 
 ```yml
-- name: Cloudflare Gateway Zero Trust
-  run: python -m src leave
+      - name: Cloudflare Gateway Zero Trust
+        run: python -m src leave
 ```
 
-Script sẽ xoá tất cả lists và rules do script này tạo ra khỏi tài khoản Cloudflare của bạn.
-
----
-
-## Giới hạn
-
-| Giới hạn | Giá trị |
-| :--- | :--- |
-| Số domain mỗi list | 1.000 |
-| Tổng số lists (block + allow cộng lại) | ≤ 300 (gói miễn phí) |
-| Tổng số domain (300 × 1.000) | ≤ 300.000 |
-
-Script tính số lists cần thiết trước khi gọi bất kỳ API nào và dừng với thông báo lỗi rõ ràng nếu vượt giới hạn.
+* Hỗ trợ **[dynamic_blacklist.txt](../lists/dynamic_blacklist.txt)** và **[dynamic_whitelist.txt](../lists/dynamic_whitelist.txt)** để tự chặn hoặc bỏ chặn tên miền theo ý thích.
 
 ---
 
