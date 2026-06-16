@@ -1,27 +1,37 @@
 from src import (
     info,
-    ip_pattern, 
-    domain_pattern, 
+    ip_pattern,
+    domain_pattern,
     replace_pattern
 )
 
-def convert_to_domain_list(block_content: str, white_content: str) -> list[str]:
-    white_domains = set()
-    block_domains = set()
 
-    extract_domains(white_content, white_domains)
-    info(f"Number of whitelisted domains: {len(white_domains)}")
+def convert_to_block_list(block_content: str) -> list[str]:
+    """Convert adlist content to domain list (no whitelist subtraction — handled by Allow rule)."""
+    block_domains = set()
 
     extract_domains(block_content, block_domains)
     block_domains = remove_subdomains_if_higher(block_domains)
     info(f"Number of blocked domains: {len(block_domains)}")
 
-    final_domains = sorted(list(block_domains - white_domains))
-    info(f"Number of final domains: {len(final_domains)}")
-
+    final_domains = sorted(list(block_domains))
+    info(f"Number of final block domains: {len(final_domains)}")
     return final_domains
 
-def extract_domains(content: str, domains: set[str]) -> None:
+
+def convert_to_allow_list(white_content: str) -> list[str]:
+    """Convert whitelist content to domain list."""
+    white_domains = set()
+
+    extract_domains(white_content, white_domains)
+    info(f"Number of whitelisted domains: {len(white_domains)}")
+
+    final_domains = sorted(list(white_domains))
+    info(f"Number of final allow domains: {len(final_domains)}")
+    return final_domains
+
+
+def extract_domains(content: str, domains: set) -> None:
     for line in content.splitlines():
         if line.startswith(("#", "!", "/")) or line == "":
             continue
@@ -34,21 +44,20 @@ def extract_domains(content: str, domains: set[str]) -> None:
                 domains.add(domain)
         except Exception:
             pass
-            
-def remove_subdomains_if_higher(domains: set[str]) -> set[str]:
+
+
+def remove_subdomains_if_higher(domains: set) -> set:
     top_level_domains = set()
-    
+
     for domain in domains:
         parts = domain.split(".")
-            
-        is_lower_subdomain = False            
+        is_lower_subdomain = False
         for i in range(1, len(parts)):
             higher_domain = ".".join(parts[i:])
             if higher_domain in domains:
                 is_lower_subdomain = True
                 break
-                    
         if not is_lower_subdomain:
             top_level_domains.add(domain)
-                
+
     return top_level_domains
