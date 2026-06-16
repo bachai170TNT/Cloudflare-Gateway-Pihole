@@ -10,6 +10,23 @@
 
 ---
 
+# Schedule
+
+[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/luxysiv/cloudflare-gateway-pihole-trigger)
+
+| Variable | Description | Example |
+| :--- | :--- | :--- |
+| `GITHUB_TOKEN` | Your GitHub Personal Access Token (Need Workflow permission and no expiration) | `ghp_xxxxxxxxxxxx` |
+| `GITHUB_USER` | Your GitHub username | `luxysiv` |
+| `GITHUB_REPO` | The name of your repository | `Cloudflare-Gateway-DNS-Filter` |
+| `WORKFLOW_ID` | The filename of your workflow | `main.yml` |
+
+* Opt for a private repository when deploying.
+
+* Once deployment is complete, you may remove the cloned repository.
+
+---
+
 ## How it works
 
 This script manages two sets of Cloudflare Gateway DNS rules in a single workflow run:
@@ -75,11 +92,7 @@ Go to `https://github.com/<username>/Cloudflare-Gateway-DNS-Filter/settings/vari
 | `DYNAMIC_BLACKLIST` | Extra domains to block (one per line) |
 | `DYNAMIC_WHITELIST` | Extra domains to allow (one per line) |
 
-Using Variables keeps your custom lists safe when you pull updates to the repo.
-
-You can also edit the local dynamic files directly:
-- [`lists/dynamic_blacklist.txt`](./lists/dynamic_blacklist.txt)
-- [`lists/dynamic_whitelist.txt`](./lists/dynamic_whitelist.txt)
+* You should add your ad list and whitelist to Action variables. If you update your fork, your custom list will not be lost.
 
 ---
 
@@ -97,120 +110,111 @@ Adguard = https://adguardteam.github.io/AdGuardSDNSFilter/Filters/filter.txt
 
 Supported domain list styles: hosts files, AdBlock/uBlock syntax, plain domain lists.
 
-> **Note for Vietnamese users:** Use **DNS filter lists**, not browser extension filter lists. Browser lists contain cosmetic rules that cause errors when used as DNS blocklists.
+> **Note:** Use **DNS filter lists**, not browser extension filter lists. Browser lists contain cosmetic rules that cause errors when used as DNS blocklists.
 
 ---
 
-## Running locally (Termux or any terminal)
+## How to set up using Termux?
 
-### Method 1 — Clone from GitHub
+To use this tool on the **GOAT** [Termux](https://github.com/termux/termux-app/releases/latest), follow the steps below. If you are already familiar with setting up Python and the basics, you can skip this section.
+
+#### Method 1:
+
+1. Open Termux and run the following commands one by one:
 
 ```sh
-# Install dependencies
 yes | pkg upgrade
-yes | pkg install python-pip git
-
-# Clone your fork
+yes | pkg install python-pip
+yes | pkg install git
 git clone https://github.com/<username>/Cloudflare-Gateway-DNS-Filter.git
-cd Cloudflare-Gateway-DNS-Filter
+```
 
-# Edit credentials
+2. Navigate to the cloned repository folder:
+
+```sh
+cd Cloudflare-Gateway-DNS-Filter
+```
+
+3. Edit the `.env` file (required):
+
+```sh
 nano .env
 ```
 
-Run the sync:
+After editing, press `CTRL + X`, then `Y`, and `ENTER` to save the file.
+
+4. Run the command to upload (update) your DNS list:
+
 ```sh
 python -m src run
 ```
 
-Delete all managed lists and rules:
+5. Run the command to delete your DNS list:
+
 ```sh
 python -m src leave
 ```
 
-### Method 2 — Download ZIP
+#### Method 2:
 
-1. Download the ZIP from the GitHub page → **Code → Download ZIP**.
-2. Unzip and edit `.env`, `lists/adlist.ini`, `lists/whitelist.ini`.
-3. Open Termux:
+1. Download the ZIP file of the repository from the 'Code' button on the GitHub page and select 'Download ZIP'.
+
+2. Unzip the downloaded file.
+
+3. Edit the values in `.env`, `lists/adlist.ini`, `lists/whitelist.ini` etc...
+
+4. Open Termux and enter the following commands to set up Python and necessary tools:
 
 ```sh
 yes | pkg upgrade
 yes | pkg install python-pip
 termux-setup-storage
+```
+
+5. Allow Termux to access storage.
+
+6. Navigate to the folder containing the unzipped source code:
+
+```sh
 cd storage/downloads/Cloudflare-Gateway-DNS-Filter-main
+```
+
+7. Run the command to upload (update) your DNS list:
+
+```sh
 python -m src run
 ```
 
----
+8. Run the command to delete your DNS list:
 
-## Workflow schedule
-
-The workflow runs automatically every **Friday at midnight UTC** and on every push. You can also trigger it manually from the **Actions** tab.
-
-To keep GitHub Actions running indefinitely (it auto-disables after 60 days of no pushes), use a Cloudflare Worker to trigger the workflow on a schedule:
-
-```javascript
-addEventListener('scheduled', event => {
-  event.waitUntil(handleScheduledEvent());
-});
-
-async function handleScheduledEvent() {
-  const GITHUB_TOKEN = 'YOUR_GITHUB_TOKEN';   // needs workflow permission, no expiry
-  const GITHUB_USER  = 'YOUR_USERNAME';
-  const GITHUB_REPO  = 'YOUR_REPO_NAME';
-  const WORKFLOW_ID  = 'main.yml';
-
-  const url = `https://api.github.com/repos/${GITHUB_USER}/${GITHUB_REPO}/actions/workflows/${WORKFLOW_ID}/dispatches`;
-
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${GITHUB_TOKEN}`,
-      'Content-Type': 'application/json',
-      'User-Agent': 'Cloudflare-Worker-Trigger',
-    },
-    body: JSON.stringify({ ref: 'main' }),
-  });
-
-  if (!res.ok) throw new Error(`Dispatch failed: ${res.status}`);
-  console.log('GitHub Action triggered successfully');
-}
+```sh
+python -m src leave
 ```
 
-Set a **Cron Trigger** in your Cloudflare Worker settings (e.g. `0 0 * * 5`).
+If you encounter issues during setup, you can refer to [termux-change-repo](https://wiki.termux.com/wiki/Package_Management) for changing Termux repositories.
 
 ---
 
-## Deleting all managed resources
+## Note
 
-Change the workflow step command to `leave` and run the workflow once:
+* The **limit** of `Cloudflare Gateway Zero Trust` free is **300 lists** (block + allow combined), with 1,000 domains per list — up to **300,000 domains** total. The script stops automatically if this limit would be exceeded.
+
+* If you have uploaded lists using another script, you should delete them using the delete feature of that script or delete them manually.
+
+* To delete all lists and rules created by this script, go to [main.yml](.github/workflows/main.yml) and change the command:
 
 ```yml
-- name: Cloudflare Gateway Zero Trust
-  run: python -m src leave
+      - name: Cloudflare Gateway Zero Trust
+        run: python -m src leave
 ```
-
-This removes all lists and rules created by this script from your Cloudflare account.
-
----
-
-## Limits
-
-| Limit | Value |
-| :--- | :--- |
-| Domains per list | 1,000 |
-| Total lists (block + allow combined) | ≤ 300 (free tier) |
-| Domains total (300 × 1,000) | ≤ 300,000 |
-
-The script calculates the number of lists needed before making any API calls and stops with a clear error if the limit would be exceeded.
 
 ---
 
 ## Credits
 
-> Thanks to [@nhubaotruong](https://github.com/nhubaotruong) for contributions.
+> Thanks a lot to [@nhubaotruong](https://github.com/nhubaotruong) for his contributions.
 
-> Original README by [@minlaxz](https://github.com/minlaxz).
+> Readme by [@minlaxz](https://github.com/minlaxz).
 
-🥂 Cheers! 🍻
+🥂🥂 Cheers! 🍻🍻
+===
