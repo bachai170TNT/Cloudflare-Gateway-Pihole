@@ -10,10 +10,9 @@ def convert_to_block_list(block_content: str) -> list[str]:
     block_domains = set()
 
     extract_domains(block_content, block_domains)
-    block_domains = remove_subdomains_if_higher(block_domains)
     info(f"Number of blocked domains: {len(block_domains)}")
 
-    final_domains = sorted(list(block_domains))
+    final_domains = sorted(remove_subdomains_if_higher(block_domains))
     info(f"Number of final block domains: {len(final_domains)}")
     return final_domains
 
@@ -24,7 +23,7 @@ def convert_to_allow_list(white_content: str) -> list[str]:
     extract_domains(white_content, white_domains)
     info(f"Number of whitelisted domains: {len(white_domains)}")
 
-    final_domains = sorted(list(white_domains))
+    final_domains = sorted(white_domains)
     info(f"Number of final allow domains: {len(final_domains)}")
     return final_domains
 
