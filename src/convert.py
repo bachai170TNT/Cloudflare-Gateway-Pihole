@@ -5,13 +5,6 @@ from src import (
     replace_pattern
 )
 
-# Single-label hostnames that appear in hosts files but are not real internet domains
-_RESERVED_HOSTNAMES = frozenset({
-    "localhost", "broadcasthost", "local",
-    "ip6-localhost", "ip6-loopback",
-    "ip6-allnodes", "ip6-allrouters",
-})
-
 
 def convert_to_block_list(block_content: str) -> list[str]:
     block_domains = set()
@@ -44,15 +37,12 @@ def extract_domains(content: str, domains: set[str]) -> None:
         cleaned_line = line.lower().strip().split("#")[0].split("^")[0].replace("\r", "")
         domain = replace_pattern.sub("", cleaned_line, count=1)
 
-        # Strip residual wildcard prefix left after stripping ||  or IP+space
-        # e.g. "||*.adtech.de" → strip "||" → "*.adtech.de" → strip "*." → "adtech.de"
-        # e.g. "0.0.0.0 *.foo.com" → strip "0.0.0.0 " → "*.foo.com" → strip "*." → "foo.com"
+        # Strip residual *. from combined patterns e.g. "||*.adtech.de" or "0.0.0.0 *.foo.com"
         if domain.startswith("*."):
             domain = domain[2:]
 
-        # Skip single-label hostnames (no dot = not a real internet domain)
-        # e.g. "::1 localhost" → "localhost" — valid label but not a blockable domain
-        if "." not in domain or domain in _RESERVED_HOSTNAMES:
+        # Must contain a dot — single-label names (localhost, broadcasthost, etc.) are not blockable internet domains
+        if "." not in domain:
             continue
 
         try:
