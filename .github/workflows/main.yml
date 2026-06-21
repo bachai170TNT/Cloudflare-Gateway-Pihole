@@ -45,21 +45,29 @@ jobs:
             ${{ runner.os }}-cloudflare-cache-
 
       - name: Run — Sync Block & Allow to Cloudflare Gateway
-        run: python -m src run
-
-      - name: Calculate Stats for Telegram
-        if: success()
-        id: stats
+        id: run_script
         run: |
-          # 1. Đếm số lượng nguồn (URLs) dựa trên biến cấu hình cấu trúc dấu phẩy hoặc xuống dòng
-          TOTAL_BLOCK_LISTS=$(echo "${{ vars.ADLIST_URLS }}" | grep -c '^' || echo "0")
-          TOTAL_ALLOW_LISTS=$(echo "${{ vars.WHITELIST_URLS }}" | grep -c '^' || echo "0")
-          TOTAL_LISTS=$((TOTAL_BLOCK_LISTS + TOTAL_ALLOW_LISTS))
+          # Chạy script Python và đồng thời ghi log ra một file tạm để trích xuất dữ liệu
+          python -m src run 2>&1 | tee output.log
+
+      - name: Calculate Stats from Python Logs
+        if: success()
+        run: |
+          # Trích xuất số lượng domain chặn và cho phép
+          FINAL_BLOCK_DOMAINS=$(grep -oP "Number of final block domains: \K\d+" output.log || echo "0")
+          FINAL_ALLOW_DOMAINS=$(grep -oP "Number of final allow domains: \K\d+" output.log || echo "0")
           
-          # Đẩy thông số vào ENV để bước sau dùng
-          echo "TOTAL_LISTS=$TOTAL_LISTS" >> $GITHUB_ENV
-          echo "BLOCK_SOURCES=$TOTAL_BLOCK_LISTS" >> $GITHUB_ENV
-          echo "ALLOW_SOURCES=$TOTAL_ALLOW_LISTS" >> $GITHUB_ENV
+          # Trích xuất số lượng List thực tế đẩy lên Cloudflare (Cấu trúc: Block: X, Allow: Y, Total: Z)
+          CF_BLOCK_LISTS=$(grep -oP "Lists needed → Block: \K\d+" output.log || echo "0")
+          CF_ALLOW_LISTS=$(grep -oP "Allow: \K\d+" output.log || echo "0")
+          CF_TOTAL_LISTS=$(grep -oP "Total: \K\d+" output.log || echo "0")
+          
+          # Đẩy toàn bộ thông số thực tế vào môi trường GitHub để bước sau sử dụng
+          echo "FINAL_BLOCK_DOMAINS=$FINAL_BLOCK_DOMAINS" >> $GITHUB_ENV
+          echo "FINAL_ALLOW_DOMAINS=$FINAL_ALLOW_DOMAINS" >> $GITHUB_ENV
+          echo "CF_BLOCK_LISTS=$CF_BLOCK_LISTS" >> $GITHUB_ENV
+          echo "CF_ALLOW_LISTS=$CF_ALLOW_LISTS" >> $GITHUB_ENV
+          echo "CF_TOTAL_LISTS=$CF_TOTAL_LISTS" >> $GITHUB_ENV
 
       - name: Send Telegram Notification
         if: success()
@@ -72,9 +80,13 @@ jobs:
             🟢 *Cloudflare Gateway DNS Filter*
             🔄 Đồng bộ dữ liệu thành công vĩnh viễn!
             
-            📊 *Thông số cấu hình:*
-            • Tổng số danh sách nguồn: `${{ env.TOTAL_LISTS }}` list
-              └ Chặn (Block): `${{ env.BLOCK_SOURCES }}` nguồn URL
-              └ Bỏ qua (Allow): `${{ env.ALLOW_SOURCES }}` nguồn URL
+            📊 *Thống kê tên miền (Domains):*
+            • 🚫 Tổng domain chặn: `${{ env.FINAL_BLOCK_DOMAINS }}`
+            • ✅ Tổng domain bỏ qua: `${{ env.FINAL_ALLOW_DOMAINS }}`
             
-            🚀 _Hệ thống tự động chạy ngầm qua Cloudflare Workers và GitHub Actions_
+            📦 *Số danh sách trên Cloudflare (Lists):*
+            • 📂 Tổng số list: `${{ env.CF_TOTAL_LISTS }}` / 300
+              └ Phân đoạn Chặn: `${{ env.CF_BLOCK_LISTS }}` list
+              └ Phân đoạn Cho phép: `${{ env.CF_ALLOW_LISTS }}` list
+            
+            🚀 _Dữ liệu được cập nhật tự động và chính xác từ hệ thống_
