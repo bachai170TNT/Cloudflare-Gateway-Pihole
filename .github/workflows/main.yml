@@ -40,8 +40,18 @@ jobs:
           path: cloudflare_cache.json
           key: ${{ runner.os }}-cloudflare-dns-cache
 
+      - name: Backup Previous Cache
+        run: |
+          # Backup the previous cache file before the Python script overwrites it
+          if [ -f "cloudflare_cache.json" ]; then
+            cp cloudflare_cache.json cloudflare_cache_prev.json
+            echo "Previous cache backed up successfully."
+          else
+            echo "No previous cache found."
+          fi
+
       - name: Run — Sync Block & Allow to Cloudflare Gateway
-        # 2>&1 redirects stderr to stdout so that 'tee' can capture all Python logs properly
+        # Redirect stderr to stdout using '2>&1' so 'tee' can capture all Python logs properly
         run: python -m src run 2>&1 | tee output.log
 
       - name: Calculate Stats from Python Logs
@@ -50,11 +60,11 @@ jobs:
           # 1. Remove ANSI color codes from log file to prevent grep parsing errors on numbers
           sed -i 's/\x1b\[[0-9;]*m//g' output.log
           
-          # 2. Extract current numbers located at the end of the matching lines
+          # 2. Extract current domain numbers located at the end of the matching lines
           FINAL_BLOCK_DOMAINS=$(grep "Number of final block domains:" output.log | grep -oP '\d+$' || echo "0")
           FINAL_ALLOW_DOMAINS=$(grep "Number of final allow domains:" output.log | grep -oP '\d+$' || echo "0")
           
-          # Force to 0 if variables are empty to prevent shell arithmetic errors
+          # Force empty variables to 0 to prevent shell arithmetic errors
           [ -z "$FINAL_BLOCK_DOMAINS" ] && FINAL_BLOCK_DOMAINS=0
           [ -z "$FINAL_ALLOW_DOMAINS" ] && FINAL_ALLOW_DOMAINS=0
           
@@ -71,26 +81,24 @@ jobs:
             CF_TOTAL_LISTS="0"
           fi
           
-          # 4. Calculate added/removed domains by comparing with previous run cache
-          CACHE_FILE="cloudflare_cache.json"
+          # 4. Calculate added/removed domains by comparing with the backup cache file
           PREV_BLOCK=0
           PREV_ALLOW=0
           
-          # Read previous values from cache before the python script overwrites it completely
-          if [ -f "$CACHE_FILE" ]; then
-            PREV_BLOCK=$(grep -oP '"total_block_domains":\s*\K\d+' $CACHE_FILE | head -n 1 || echo "0")
-            PREV_ALLOW=$(grep -oP '"total_allow_domains":\s*\K\d+' $CACHE_FILE | head -n 1 || echo "0")
+          if [ -f "cloudflare_cache_prev.json" ]; then
+            PREV_BLOCK=$(grep -oP '"total_block_domains":\s*\K\d+' cloudflare_cache_prev.json | head -n 1 || echo "0")
+            PREV_ALLOW=$(grep -oP '"total_allow_domains":\s*\K\d+' cloudflare_cache_prev.json | head -n 1 || echo "0")
           fi
           
-          # Fallback to current values if no valid previous cache exists (first run)
+          # Fallback to current values if no valid previous cache exists (e.g., first run)
           (( PREV_BLOCK == 0 )) && PREV_BLOCK=$FINAL_BLOCK_DOMAINS
           (( PREV_ALLOW == 0 )) && PREV_ALLOW=$FINAL_ALLOW_DOMAINS
           
-          # Calculate differences safely using bash arithmetic
+          # Calculate the exact difference using bash arithmetic
           DIFF_BLOCK=$(( FINAL_BLOCK_DOMAINS - PREV_BLOCK ))
           DIFF_ALLOW=$(( FINAL_ALLOW_DOMAINS - PREV_ALLOW ))
           
-          # Format result string for Telegram output
+          # Format result string with indicators for Telegram output
           if [ $DIFF_BLOCK -gt 0 ]; then CHG_BLOCK=" (+$DIFF_BLOCK 🟢)"; elif [ $DIFF_BLOCK -lt 0 ]; then CHG_BLOCK=" ($DIFF_BLOCK 🔴)"; else CHG_BLOCK=" (No changes ⚪)"; fi
           if [ $DIFF_ALLOW -gt 0 ]; then CHG_ALLOW=" (+$DIFF_ALLOW 🟢)"; elif [ $DIFF_ALLOW -lt 0 ]; then CHG_ALLOW=" ($DIFF_ALLOW 🔴)"; else CHG_ALLOW=" (No changes ⚪)"; fi
           
