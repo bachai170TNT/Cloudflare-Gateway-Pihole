@@ -53,11 +53,14 @@ jobs:
       - name: Calculate Stats from Python Logs
         if: success()
         run: |
-          # 1. Chỉ bắt con số nằm ở cuối dòng (dùng định dạng \d+$) để né mốc năm 2026 ở đầu dòng
+          # 1. Remove ANSI color codes from log file to prevent grep parsing errors on numbers
+          sed -i 's/\x1b\[[0-9;]*m//g' output.log
+          
+          # 2. Extract the numbers located at the end of the matching lines
           FINAL_BLOCK_DOMAINS=$(grep "Number of final block domains:" output.log | grep -oP '\d+$' || echo "0")
           FINAL_ALLOW_DOMAINS=$(grep "Number of final allow domains:" output.log | grep -oP '\d+$' || echo "0")
           
-          # 2. Lấy riêng dòng chứa thông số List trên Cloudflare để bóc tách
+          # 3. Isolate the specific summary line containing Cloudflare List statistics
           LIST_LINE=$(grep "Lists needed →" output.log || echo "")
           
           if [ -n "$LIST_LINE" ]; then
@@ -70,7 +73,7 @@ jobs:
             CF_TOTAL_LISTS="0"
           fi
           
-          # Đẩy thông số chuẩn vào môi trường GitHub
+          # Export cleaned variables to GitHub Environment for subsequent steps
           echo "FINAL_BLOCK_DOMAINS=$FINAL_BLOCK_DOMAINS" >> $GITHUB_ENV
           echo "FINAL_ALLOW_DOMAINS=$FINAL_ALLOW_DOMAINS" >> $GITHUB_ENV
           echo "CF_BLOCK_LISTS=$CF_BLOCK_LISTS" >> $GITHUB_ENV
