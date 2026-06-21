@@ -17,10 +17,8 @@ jobs:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
       CF_IDENTIFIER: ${{ secrets.CF_IDENTIFIER }}
-      # Block sources
       ADLIST_URLS: ${{ vars.ADLIST_URLS }}
       DYNAMIC_BLACKLIST: ${{ vars.DYNAMIC_BLACKLIST }}
-      # Allow sources
       WHITELIST_URLS: ${{ vars.WHITELIST_URLS }}
       DYNAMIC_WHITELIST: ${{ vars.DYNAMIC_WHITELIST }}
 
@@ -35,20 +33,16 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Cache Cloudflare state
-        id: cache-cloudflare
-        uses: actions/cache@main
+      - name: Restore Cloudflare State Cache
+        id: cache-restore
+        uses: actions/cache/restore@v4
         with:
           path: cloudflare_cache.json
-          key: ${{ runner.os }}-cloudflare-cache-${{ github.run_id }}
-          restore-keys: |
-            ${{ runner.os }}-cloudflare-cache-
+          key: ${{ runner.os }}-cloudflare-dns-cache
 
       - name: Run — Sync Block & Allow to Cloudflare Gateway
-        id: run_script
-        run: |
-          # Chạy script Python và đồng thời ghi log ra một file tạm để trích xuất dữ liệu
-          python -m src run 2>&1 | tee output.log
+        # Using 'tee' ensures logs are saved to output.log while still displaying in GitHub console
+        run: python -m src run | tee output.log
 
       - name: Calculate Stats from Python Logs
         if: success()
@@ -59,6 +53,10 @@ jobs:
           # 2. Extract current numbers located at the end of the matching lines
           FINAL_BLOCK_DOMAINS=$(grep "Number of final block domains:" output.log | grep -oP '\d+$' || echo "0")
           FINAL_ALLOW_DOMAINS=$(grep "Number of final allow domains:" output.log | grep -oP '\d+$' || echo "0")
+          
+          # Force to 0 if variables are empty to prevent shell arithmetic errors
+          [ -z "$FINAL_BLOCK_DOMAINS" ] && FINAL_BLOCK_DOMAINS=0
+          [ -z "$FINAL_ALLOW_DOMAINS" ] && FINAL_ALLOW_DOMAINS=0
           
           # 3. Isolate the specific summary line containing Cloudflare List statistics
           LIST_LINE=$(grep "Lists needed →" output.log || echo "")
@@ -75,25 +73,24 @@ jobs:
           
           # 4. Calculate added/removed domains by comparing with previous run cache
           CACHE_FILE="cloudflare_cache.json"
-          PREV_BLOCK="0"
-          PREV_ALLOW="0"
+          PREV_BLOCK=0
+          PREV_ALLOW=0
           
+          # Read previous values from cache before the python script overwrites it completely
           if [ -f "$CACHE_FILE" ]; then
-            # Simple fallback to read previous counts if stored in cache by the script
-            # In case the script's json structure is complex, we handle it gracefully
-            PREV_BLOCK=$(grep -oP '"total_block_domains":\s*\K\d+' $CACHE_FILE || echo "0")
-            PREV_ALLOW=$(grep -oP '"total_allow_domains":\s*\K\d+' $CACHE_FILE || echo "0")
+            PREV_BLOCK=$(grep -oP '"total_block_domains":\s*\K\d+' $CACHE_FILE | head -n 1 || echo "0")
+            PREV_ALLOW=$(grep -oP '"total_allow_domains":\s*\K\d+' $CACHE_FILE | head -n 1 || echo "0")
           fi
           
-          # Fallback to current values if no previous cache exists to prevent breaking math
-          [ "$PREV_BLOCK" = "0" ] && PREV_BLOCK=$FINAL_BLOCK_DOMAINS
-          [ "$PREV_ALLOW" = "0" ] && PREV_ALLOW=$FINAL_ALLOW_DOMAINS
+          # Fallback to current values if no valid previous cache exists (first run)
+          (( PREV_BLOCK == 0 )) && PREV_BLOCK=$FINAL_BLOCK_DOMAINS
+          (( PREV_ALLOW == 0 )) && PREV_ALLOW=$FINAL_ALLOW_DOMAINS
           
-          # Calculate differences
-          DIFF_BLOCK=$((FINAL_BLOCK_DOMAINS - PREV_BLOCK))
-          DIFF_ALLOW=$((FINAL_ALLOW_DOMAINS - PREV_ALLOW))
+          # Calculate differences safely using bash arithmetic
+          DIFF_BLOCK=$(( FINAL_BLOCK_DOMAINS - PREV_BLOCK ))
+          DIFF_ALLOW=$(( FINAL_ALLOW_DOMAINS - PREV_ALLOW ))
           
-          # Format string for Telegram message
+          # Format result string for Telegram output
           if [ $DIFF_BLOCK -gt 0 ]; then CHG_BLOCK=" (+$DIFF_BLOCK 🟢)"; elif [ $DIFF_BLOCK -lt 0 ]; then CHG_BLOCK=" ($DIFF_BLOCK 🔴)"; else CHG_BLOCK=" (No changes ⚪)"; fi
           if [ $DIFF_ALLOW -gt 0 ]; then CHG_ALLOW=" (+$DIFF_ALLOW 🟢)"; elif [ $DIFF_ALLOW -lt 0 ]; then CHG_ALLOW=" ($DIFF_ALLOW 🔴)"; else CHG_ALLOW=" (No changes ⚪)"; fi
           
@@ -105,7 +102,14 @@ jobs:
           echo "CF_BLOCK_LISTS=$CF_BLOCK_LISTS" >> $GITHUB_ENV
           echo "CF_ALLOW_LISTS=$CF_ALLOW_LISTS" >> $GITHUB_ENV
           echo "CF_TOTAL_LISTS=$CF_TOTAL_LISTS" >> $GITHUB_ENV
-          
+
+      - name: Save Cloudflare State Cache
+        if: success()
+        uses: actions/cache/save@v4
+        with:
+          path: cloudflare_cache.json
+          key: ${{ runner.os }}-cloudflare-dns-cache
+
       - name: Send Telegram Notification
         if: success()
         uses: appleboy/telegram-action@master
