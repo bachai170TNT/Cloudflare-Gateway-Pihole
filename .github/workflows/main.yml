@@ -35,7 +35,7 @@ jobs:
 
       - name: Restore Cloudflare State Cache
         id: cache-restore
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@main
         with:
           path: cloudflare_cache.json
           key: ${{ runner.os }}-cloudflare-dns-cache
@@ -105,7 +105,7 @@ jobs:
 
       - name: Save Cloudflare State Cache
         if: success()
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@main
         with:
           path: cloudflare_cache.json
           key: ${{ runner.os }}-cloudflare-dns-cache
