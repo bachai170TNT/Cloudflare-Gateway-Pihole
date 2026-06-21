@@ -56,7 +56,7 @@ jobs:
           # 1. Remove ANSI color codes from log file to prevent grep parsing errors on numbers
           sed -i 's/\x1b\[[0-9;]*m//g' output.log
           
-          # 2. Extract the numbers located at the end of the matching lines
+          # 2. Extract current numbers located at the end of the matching lines
           FINAL_BLOCK_DOMAINS=$(grep "Number of final block domains:" output.log | grep -oP '\d+$' || echo "0")
           FINAL_ALLOW_DOMAINS=$(grep "Number of final allow domains:" output.log | grep -oP '\d+$' || echo "0")
           
@@ -73,13 +73,39 @@ jobs:
             CF_TOTAL_LISTS="0"
           fi
           
+          # 4. Calculate added/removed domains by comparing with previous run cache
+          CACHE_FILE="cloudflare_cache.json"
+          PREV_BLOCK="0"
+          PREV_ALLOW="0"
+          
+          if [ -f "$CACHE_FILE" ]; then
+            # Simple fallback to read previous counts if stored in cache by the script
+            # In case the script's json structure is complex, we handle it gracefully
+            PREV_BLOCK=$(grep -oP '"total_block_domains":\s*\K\d+' $CACHE_FILE || echo "0")
+            PREV_ALLOW=$(grep -oP '"total_allow_domains":\s*\K\d+' $CACHE_FILE || echo "0")
+          fi
+          
+          # Fallback to current values if no previous cache exists to prevent breaking math
+          [ "$PREV_BLOCK" = "0" ] && PREV_BLOCK=$FINAL_BLOCK_DOMAINS
+          [ "$PREV_ALLOW" = "0" ] && PREV_ALLOW=$FINAL_ALLOW_DOMAINS
+          
+          # Calculate differences
+          DIFF_BLOCK=$((FINAL_BLOCK_DOMAINS - PREV_BLOCK))
+          DIFF_ALLOW=$((FINAL_ALLOW_DOMAINS - PREV_ALLOW))
+          
+          # Format string for Telegram message
+          if [ $DIFF_BLOCK -gt 0 ]; then CHG_BLOCK=" (+$DIFF_BLOCK 🟢)"; elif [ $DIFF_BLOCK -lt 0 ]; then CHG_BLOCK=" ($DIFF_BLOCK 🔴)"; else CHG_BLOCK=" (No changes ⚪)"; fi
+          if [ $DIFF_ALLOW -gt 0 ]; then CHG_ALLOW=" (+$DIFF_ALLOW 🟢)"; elif [ $DIFF_ALLOW -lt 0 ]; then CHG_ALLOW=" ($DIFF_ALLOW 🔴)"; else CHG_ALLOW=" (No changes ⚪)"; fi
+          
           # Export cleaned variables to GitHub Environment for subsequent steps
           echo "FINAL_BLOCK_DOMAINS=$FINAL_BLOCK_DOMAINS" >> $GITHUB_ENV
           echo "FINAL_ALLOW_DOMAINS=$FINAL_ALLOW_DOMAINS" >> $GITHUB_ENV
+          echo "CHG_BLOCK=$CHG_BLOCK" >> $GITHUB_ENV
+          echo "CHG_ALLOW=$CHG_ALLOW" >> $GITHUB_ENV
           echo "CF_BLOCK_LISTS=$CF_BLOCK_LISTS" >> $GITHUB_ENV
           echo "CF_ALLOW_LISTS=$CF_ALLOW_LISTS" >> $GITHUB_ENV
           echo "CF_TOTAL_LISTS=$CF_TOTAL_LISTS" >> $GITHUB_ENV
-
+          
       - name: Send Telegram Notification
         if: success()
         uses: appleboy/telegram-action@master
@@ -92,8 +118,8 @@ jobs:
             🔄 Đồng bộ dữ liệu thành công vĩnh viễn!
             
             📊 *Thống kê tên miền (Domains):*
-            • 🚫 Tổng domain chặn: `${{ env.FINAL_BLOCK_DOMAINS }}`
-            • ✅ Tổng domain bỏ qua: `${{ env.FINAL_ALLOW_DOMAINS }}`
+            • 🚫 Tổng domain chặn: `${{ env.FINAL_BLOCK_DOMAINS }}`_`${{ env.CHG_BLOCK }}`_
+            • ✅ Tổng domain bỏ qua: `${{ env.FINAL_ALLOW_DOMAINS }}`_`${{ env.CHG_ALLOW }}`_
             
             📦 *Số danh sách trên Cloudflare (Lists):*
             • 📂 Tổng số list: `${{ env.CF_TOTAL_LISTS }}` / 300
