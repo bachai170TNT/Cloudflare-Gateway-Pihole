@@ -41,8 +41,8 @@ jobs:
           key: ${{ runner.os }}-cloudflare-dns-cache
 
       - name: Run — Sync Block & Allow to Cloudflare Gateway
-        # Using 'tee' ensures logs are saved to output.log while still displaying in GitHub console
-        run: python -m src run | tee output.log
+        # 2>&1 redirects stderr to stdout so that 'tee' can capture all Python logs properly
+        run: python -m src run 2>&1 | tee output.log
 
       - name: Calculate Stats from Python Logs
         if: success()
