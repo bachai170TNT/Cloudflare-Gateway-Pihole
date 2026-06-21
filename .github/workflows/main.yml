@@ -53,9 +53,9 @@ jobs:
       - name: Calculate Stats from Python Logs
         if: success()
         run: |
-          # 1. Trích xuất số lượng domain chặn và cho phép (Lọc chính xác theo dòng chứa 'Number of final')
-          FINAL_BLOCK_DOMAINS=$(grep "Number of final block domains:" output.log | grep -oP '\d+' || echo "0")
-          FINAL_ALLOW_DOMAINS=$(grep "Number of final allow domains:" output.log | grep -oP '\d+' || echo "0")
+          # 1. Chỉ bắt con số nằm ở cuối dòng (dùng định dạng \d+$) để né mốc năm 2026 ở đầu dòng
+          FINAL_BLOCK_DOMAINS=$(grep "Number of final block domains:" output.log | grep -oP '\d+$' || echo "0")
+          FINAL_ALLOW_DOMAINS=$(grep "Number of final allow domains:" output.log | grep -oP '\d+$' || echo "0")
           
           # 2. Lấy riêng dòng chứa thông số List trên Cloudflare để bóc tách
           LIST_LINE=$(grep "Lists needed →" output.log || echo "")
