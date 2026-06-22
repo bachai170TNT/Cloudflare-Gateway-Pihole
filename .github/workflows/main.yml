@@ -33,22 +33,12 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Restore Cloudflare State Cache
+      - name: Restore Previous Domain Counts Cache
         id: cache-restore
         uses: actions/cache/restore@main
         with:
-          path: cloudflare_cache.json
-          key: ${{ runner.os }}-cloudflare-dns-cache
-
-      - name: Backup Previous Cache
-        run: |
-          # Backup the previous cache file before the Python script overwrites it
-          if [ -f "cloudflare_cache.json" ]; then
-            cp cloudflare_cache.json cloudflare_cache_prev.json
-            echo "Previous cache backed up successfully."
-          else
-            echo "No previous cache found."
-          fi
+          path: previous_counts.txt
+          key: ${{ runner.os }}-dns-counts-cache
 
       - name: Run — Sync Block & Allow to Cloudflare Gateway
         # Redirect stderr to stdout using '2>&1' so 'tee' can capture all Python logs properly
@@ -81,13 +71,13 @@ jobs:
             CF_TOTAL_LISTS="0"
           fi
           
-          # 4. Calculate added/removed domains by comparing with the backup cache file
+          # 4. Read PREVIOUS values from the dedicated text cache file
           PREV_BLOCK=0
           PREV_ALLOW=0
           
-          if [ -f "cloudflare_cache_prev.json" ]; then
-            PREV_BLOCK=$(grep -oP '"total_block_domains":\s*\K\d+' cloudflare_cache_prev.json | head -n 1 || echo "0")
-            PREV_ALLOW=$(grep -oP '"total_allow_domains":\s*\K\d+' cloudflare_cache_prev.json | head -n 1 || echo "0")
+          if [ -f "previous_counts.txt" ]; then
+            PREV_BLOCK=$(grep -oP 'PREV_BLOCK=\K\d+' previous_counts.txt || echo "0")
+            PREV_ALLOW=$(grep -oP 'PREV_ALLOW=\K\d+' previous_counts.txt || echo "0")
           fi
           
           # Fallback to current values if no valid previous cache exists (e.g., first run)
@@ -102,6 +92,10 @@ jobs:
           if [ $DIFF_BLOCK -gt 0 ]; then CHG_BLOCK=" (+$DIFF_BLOCK 🟢)"; elif [ $DIFF_BLOCK -lt 0 ]; then CHG_BLOCK=" ($DIFF_BLOCK 🔴)"; else CHG_BLOCK=" (No changes ⚪)"; fi
           if [ $DIFF_ALLOW -gt 0 ]; then CHG_ALLOW=" (+$DIFF_ALLOW 🟢)"; elif [ $DIFF_ALLOW -lt 0 ]; then CHG_ALLOW=" ($DIFF_ALLOW 🔴)"; else CHG_ALLOW=" (No changes ⚪)"; fi
           
+          # Save current values to the text file for the NEXT run's comparison
+          echo "PREV_BLOCK=$FINAL_BLOCK_DOMAINS" > previous_counts.txt
+          echo "PREV_ALLOW=$FINAL_ALLOW_DOMAINS" >> previous_counts.txt
+          
           # Export cleaned variables to GitHub Environment for subsequent steps
           echo "FINAL_BLOCK_DOMAINS=$FINAL_BLOCK_DOMAINS" >> $GITHUB_ENV
           echo "FINAL_ALLOW_DOMAINS=$FINAL_ALLOW_DOMAINS" >> $GITHUB_ENV
@@ -111,12 +105,13 @@ jobs:
           echo "CF_ALLOW_LISTS=$CF_ALLOW_LISTS" >> $GITHUB_ENV
           echo "CF_TOTAL_LISTS=$CF_TOTAL_LISTS" >> $GITHUB_ENV
 
-      - name: Save Cloudflare State Cache
+      # 5. Save the text file containing today's counts to GitHub Cache (Overwriting old cache)
+      - name: Save Domain Counts Cache
         if: success()
         uses: actions/cache/save@main
         with:
-          path: cloudflare_cache.json
-          key: ${{ runner.os }}-cloudflare-dns-cache
+          path: previous_counts.txt
+          key: ${{ runner.os }}-dns-counts-cache
 
       - name: Send Telegram Notification
         if: success()
