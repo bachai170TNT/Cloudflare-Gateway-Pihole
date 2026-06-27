@@ -42,7 +42,7 @@ jobs:
 
       - name: Run — Sync Block & Allow to Cloudflare Gateway
         # Redirect stderr to stdout using '2>&1' so 'tee' can capture all Python logs properly
-        run: python -m src leave 2>&1 | tee output.log
+        run: python -m src run 2>&1 | tee output.log
 
       - name: Calculate Stats from Python Logs
         if: success()
