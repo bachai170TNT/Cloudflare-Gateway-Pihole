@@ -17,8 +17,10 @@ jobs:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
       CF_IDENTIFIER: ${{ secrets.CF_IDENTIFIER }}
+      # Block sources
       ADLIST_URLS: ${{ vars.ADLIST_URLS }}
       DYNAMIC_BLACKLIST: ${{ vars.DYNAMIC_BLACKLIST }}
+      # Allow sources
       WHITELIST_URLS: ${{ vars.WHITELIST_URLS }}
       DYNAMIC_WHITELIST: ${{ vars.DYNAMIC_WHITELIST }}
 
@@ -33,104 +35,14 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Restore Previous Domain Counts Cache
-        id: cache-restore
-        uses: actions/cache/restore@main
+      - name: Cache Cloudflare state
+        id: cache-cloudflare
+        uses: actions/cache@main
         with:
-          path: previous_counts.txt
-          key: ${{ runner.os }}-dns-counts-cache
+          path: cloudflare_cache.json
+          key: ${{ runner.os }}-cloudflare-cache-${{ github.run_id }}
+          restore-keys: |
+            ${{ runner.os }}-cloudflare-cache-
 
       - name: Run — Sync Block & Allow to Cloudflare Gateway
-        # Redirect stderr to stdout using '2>&1' so 'tee' can capture all Python logs properly
-        run: python -m src run 2>&1 | tee output.log
-
-      - name: Calculate Stats from Python Logs
-        if: success()
-        run: |
-          # 1. Remove ANSI color codes from log file to prevent grep parsing errors on numbers
-          sed -i 's/\x1b\[[0-9;]*m//g' output.log
-          
-          # 2. Extract current domain numbers located at the end of the matching lines
-          FINAL_BLOCK_DOMAINS=$(grep "Number of final block domains:" output.log | grep -oP '\d+$' || echo "0")
-          FINAL_ALLOW_DOMAINS=$(grep "Number of final allow domains:" output.log | grep -oP '\d+$' || echo "0")
-          
-          # Force empty variables to 0 to prevent shell arithmetic errors
-          [ -z "$FINAL_BLOCK_DOMAINS" ] && FINAL_BLOCK_DOMAINS=0
-          [ -z "$FINAL_ALLOW_DOMAINS" ] && FINAL_ALLOW_DOMAINS=0
-          
-          # 3. Isolate the specific summary line containing Cloudflare List statistics
-          LIST_LINE=$(grep "Lists needed →" output.log || echo "")
-          
-          if [ -n "$LIST_LINE" ]; then
-            CF_BLOCK_LISTS=$(echo "$LIST_LINE" | grep -oP 'Block: \K\d+' || echo "0")
-            CF_ALLOW_LISTS=$(echo "$LIST_LINE" | grep -oP 'Allow: \K\d+' || echo "0")
-            CF_TOTAL_LISTS=$(echo "$LIST_LINE" | grep -oP 'Total: \K\d+' || echo "0")
-          else
-            CF_BLOCK_LISTS="0"
-            CF_ALLOW_LISTS="0"
-            CF_TOTAL_LISTS="0"
-          fi
-          
-          # 4. Read PREVIOUS values from the dedicated text cache file
-          PREV_BLOCK=0
-          PREV_ALLOW=0
-          
-          if [ -f "previous_counts.txt" ]; then
-            PREV_BLOCK=$(grep -oP 'PREV_BLOCK=\K\d+' previous_counts.txt || echo "0")
-            PREV_ALLOW=$(grep -oP 'PREV_ALLOW=\K\d+' previous_counts.txt || echo "0")
-          fi
-          
-          # Fallback to current values if no valid previous cache exists (e.g., first run)
-          (( PREV_BLOCK == 0 )) && PREV_BLOCK=$FINAL_BLOCK_DOMAINS
-          (( PREV_ALLOW == 0 )) && PREV_ALLOW=$FINAL_ALLOW_DOMAINS
-          
-          # Calculate the exact difference using bash arithmetic
-          DIFF_BLOCK=$(( FINAL_BLOCK_DOMAINS - PREV_BLOCK ))
-          DIFF_ALLOW=$(( FINAL_ALLOW_DOMAINS - PREV_ALLOW ))
-          
-          # Format result string with indicators for Telegram output
-          if [ $DIFF_BLOCK -gt 0 ]; then CHG_BLOCK=" (+$DIFF_BLOCK 🟢)"; elif [ $DIFF_BLOCK -lt 0 ]; then CHG_BLOCK=" ($DIFF_BLOCK 🔴)"; else CHG_BLOCK=" (No changes ⚪)"; fi
-          if [ $DIFF_ALLOW -gt 0 ]; then CHG_ALLOW=" (+$DIFF_ALLOW 🟢)"; elif [ $DIFF_ALLOW -lt 0 ]; then CHG_ALLOW=" ($DIFF_ALLOW 🔴)"; else CHG_ALLOW=" (No changes ⚪)"; fi
-          
-          # Save current values to the text file for the NEXT run's comparison
-          echo "PREV_BLOCK=$FINAL_BLOCK_DOMAINS" > previous_counts.txt
-          echo "PREV_ALLOW=$FINAL_ALLOW_DOMAINS" >> previous_counts.txt
-          
-          # Export cleaned variables to GitHub Environment for subsequent steps
-          echo "FINAL_BLOCK_DOMAINS=$FINAL_BLOCK_DOMAINS" >> $GITHUB_ENV
-          echo "FINAL_ALLOW_DOMAINS=$FINAL_ALLOW_DOMAINS" >> $GITHUB_ENV
-          echo "CHG_BLOCK=$CHG_BLOCK" >> $GITHUB_ENV
-          echo "CHG_ALLOW=$CHG_ALLOW" >> $GITHUB_ENV
-          echo "CF_BLOCK_LISTS=$CF_BLOCK_LISTS" >> $GITHUB_ENV
-          echo "CF_ALLOW_LISTS=$CF_ALLOW_LISTS" >> $GITHUB_ENV
-          echo "CF_TOTAL_LISTS=$CF_TOTAL_LISTS" >> $GITHUB_ENV
-
-      # 5. Save the text file containing today's counts to GitHub Cache (Overwriting old cache)
-      - name: Save Domain Counts Cache
-        if: success()
-        uses: actions/cache/save@main
-        with:
-          path: previous_counts.txt
-          key: ${{ runner.os }}-dns-counts-cache
-
-      - name: Send Telegram Notification
-        if: success()
-        uses: appleboy/telegram-action@master
-        with:
-          to: ${{ secrets.TELEGRAM_TO }}
-          token: ${{ secrets.TELEGRAM_TOKEN }}
-          format: markdown
-          message: |
-            🟢 *Cloudflare Gateway DNS Filter*
-            🔄 Đồng bộ dữ liệu thành công vĩnh viễn!
-            
-            📊 *Thống kê tên miền (Domains):*
-            • 🚫 Tổng domain chặn: `${{ env.FINAL_BLOCK_DOMAINS }}`_`${{ env.CHG_BLOCK }}`_
-            • ✅ Tổng domain bỏ qua: `${{ env.FINAL_ALLOW_DOMAINS }}`_`${{ env.CHG_ALLOW }}`_
-            
-            📦 *Số danh sách trên Cloudflare (Lists):*
-            • 📂 Tổng số list: `${{ env.CF_TOTAL_LISTS }}` / 300
-              └ Phân đoạn Chặn: `${{ env.CF_BLOCK_LISTS }}` list
-              └ Phân đoạn Cho phép: `${{ env.CF_ALLOW_LISTS }}` list
-            
-            🚀 _Dữ liệu được cập nhật tự động và chính xác từ hệ thống_
+        run: python -m src run
